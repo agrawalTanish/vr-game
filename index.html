@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="logo.png" />
+  <title>Tanish VR Game</title>
+  <style>
+    body { margin: 0; overflow: hidden; background-color: black; }
+    canvas { display: block; }
+    #score, #name { position: absolute; top: 10px; font-size: 20px; color: white; }
+    #name { left: 10%; top: 8%; font-size: 1.5rem; background-image: url(text.jpeg); background-size: cover; background-clip: text; -webkit-background-clip: text; color: transparent; }
+    #score { left: 10px; }
+    #head { position: absolute; left: 65%; top: 50%; font-size: 2rem; border: 2px dashed whitesmoke; padding: 0.5rem 1rem; color: white; cursor: pointer; background-image: url(text.jpeg); background-size: cover; background-clip: text; -webkit-background-clip: text; color: transparent; }
+    #head:hover { background-color: rgba(65, 64, 64, 0.74); transition: 1s; color: rgba(202, 198, 198, 0.566); border-radius: 0.5rem; }
+    #text { position: absolute; color: aliceblue; float: left; top: 15%; margin-left: 3rem; margin-top: 2rem; }
+    #exit, #toggle { position: absolute; top: 87%; left: 10%; font-size: 1.5rem; border: 2px solid whitesmoke; padding: 0.5rem 1rem; color: white; cursor: pointer; display: none; }
+    #exit { background-color: red; }
+    #toggle { left: 35%; background-color: rgba(169, 174, 178, 0.605);}
+    #vid{
+      position: absolute;
+      width: 60%;
+      height: 30%;
+      top: 35%;
+    }
+  </style>
+</head>
+<body>
+  <div id="score">Score: 0</div>
+  <div id="name">Tanish JavaScript | Experience in VR 💻</div>
+  <div id="text">Click on Start<br>Then Click on Enter VR</div>
+  <div id="head">Start</div>
+  <video  id="vid" src="bgvideo.mp4" autoplay loop controls></video>
+  <div id="exit">Exit</div>
+  <div id="toggle">Mixed-Reality Fun!!</div>
+
+  <!-- Audio elements for sounds -->
+  <audio id="hitSound" src="hit.mp4"></audio>
+  <audio id="startSound" src="start.wav"></audio>
+  <audio id="endSound" src="stop.wav"></audio>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.126.0/build/three.module.js';
+    import { VRButton } from 'https://unpkg.com/three@0.126.0/examples/jsm/webxr/VRButton.js';
+
+    let camera, scene, renderer;
+    let score = 0;
+    let balls = [];
+    let crosshair;
+    let gameInterval;
+    let level = 1;
+    let spawnInterval = 1000;
+    let useCameraBackground = true;
+    let video, videoTexture, videoMesh;
+
+    document.getElementById("head").addEventListener('click', () => {
+      init();
+      startGame();
+    });
+
+    document.getElementById("exit").addEventListener('click', endGame);
+    document.getElementById("toggle").addEventListener('click', toggleBackground);
+
+    function init() {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+
+      scene = new THREE.Scene();
+
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+      light.position.set(0.5, 1, 0.25);
+      scene.add(light);
+
+      document.body.appendChild(VRButton.createButton(renderer));
+
+      window.addEventListener('resize', onWindowResize, false);
+
+      // Create crosshair
+      const crosshairGeometry = new THREE.RingGeometry(0.02, 0.03, 32);
+      const crosshairMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      crosshair = new THREE.Mesh(crosshairGeometry, crosshairMaterial);
+      crosshair.position.z = -2; // Place in front of the camera
+      camera.add(crosshair);
+
+      scene.add(camera);
+
+      // Set up camera background
+      setupCameraBackground();
+    }
+
+    async function setupCameraBackground() {
+      video = document.createElement('video');
+      video.style.display = 'none';
+      document.body.appendChild(video);
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" }
+          }
+        });
+
+        // Create video texture
+        videoTexture = new THREE.VideoTexture(video);
+        videoTexture.minFilter = THREE.LinearFilter;
+        videoTexture.magFilter = THREE.LinearFilter;
+        videoTexture.format = THREE.RGBFormat;
+
+        const videoGeometry = new THREE.PlaneGeometry(2, 2);
+        const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+
+        videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
+        videoMesh.scale.set(1.5, 1, 1);  // Adjust scaling if needed
+        scene.background = videoTexture;
+
+        video.srcObject = stream;
+        video.play();
+      } catch (error) {
+        console.error('Error accessing the camera:', error);
+        useCameraBackground = false;
+      }
+    }
+
+    function startGame() {
+      const startSound = document.getElementById('startSound');
+      startSound.play();
+
+      score = 0;
+      level = 1;
+      spawnInterval = 1000;
+
+      document.getElementById('score').innerText = `Score: ${score}`;
+
+      // Clear existing intervals if any
+      clearInterval(gameInterval);
+
+      // Start game loop
+      gameInterval = setInterval(generateRandomBall, spawnInterval);
+
+      // Show exit button and toggle button
+      document.getElementById('exit').style.display = 'block';
+      document.getElementById('toggle').style.display = 'block';
+
+      animate();
+    }
+
+    function generateRandomBall() {
+      const geometry = new THREE.SphereGeometry(0.1, 32, 32);
+      const material = new THREE.MeshPhongMaterial({
+        color: 0xffffff * Math.random(),
+        shininess: 6,
+        flatShading: true,
+        transparent: true,
+        opacity: 0.8
+      });
+      const ball = new THREE.Mesh(geometry, material);
+
+      // Set random position within a range
+      ball.position.set(
+        (Math.random() - 0.5) * 4,
+        (Math.random() - 0.5) * 4,
+        (Math.random() - 0.5) * 4
+      );
+
+      scene.add(ball);
+      balls.push(ball);
+
+      // Remove ball after a certain time to prevent too many balls
+      setTimeout(() => {
+        scene.remove(ball);
+        balls = balls.filter(b => b !== ball);
+      }, 5000);
+    }
+
+    function updateScore() {
+      const hitSound = document.getElementById('hitSound');
+      hitSound.play();
+
+      score++;
+      document.getElementById('score').innerText = `Score: ${score}`;
+
+      // Increase difficulty based on score
+      if (score % 10 === 0) {
+        level++;
+        spawnInterval = Math.max(200, spawnInterval - 100);
+        clearInterval(gameInterval);
+        gameInterval = setInterval(generateRandomBall, spawnInterval);
+      }
+    }
+
+    function endGame() {
+      const endSound = document.getElementById('endSound');
+      endSound.play();
+
+      clearInterval(gameInterval);
+
+      // Hide exit button and toggle button
+      document.getElementById('exit').style.display = 'none';
+      document.getElementById('toggle').style.display = 'none';
+
+      alert(`Game Over! Your score is ${score}`);
+      // Optionally, restart the game
+      // startGame();
+    }
+
+    function checkIntersection() {
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+
+      const intersects = raycaster.intersectObjects(balls);
+      if (intersects.length > 0) {
+        const selectedObject = intersects[0].object;
+        scene.remove(selectedObject);
+        balls = balls.filter(ball => ball !== selectedObject);
+        updateScore();
+      }
+    }
+
+    function toggleBackground() {
+      useCameraBackground = !useCameraBackground;
+      if (useCameraBackground) {
+        scene.background = videoTexture;
+        video.play();
+      } else {
+        scene.background = new THREE.Color('black');
+        video.pause();
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      renderer.setAnimationLoop(render);
+    }
+
+    function render() {
+      if (useCameraBackground && videoTexture) videoTexture.needsUpdate = true;
+      checkIntersection();
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
