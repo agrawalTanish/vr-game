@@ -81,7 +81,7 @@ git clone https://github.com/agrawalTanish/tanish-vr-game.git
 
 ![VR Scene](./screenshots/i1.png)
 
-![VR Scene](./screenshots/i2.png)
+![VR Scene](./screenshots/12.png)
 
 ## 🌐 Deployment
 
